@@ -23,8 +23,7 @@ Below is the day-wise project plan for the File Explorer Application 👇
 - 🔍 Search files recursively  
 - 🔒 Change file permissions (`chmod`)
 
-  
-![pic](https://github.com/user-attachments/assets/fcf51de6-8820-4b05-92ae-4c63998f3f7d)
+  <img width="1920" height="1080" alt="full" src="https://github.com/user-attachments/assets/e60ce2c6-dec9-46db-b0b0-c0fc452fe823" />
 
 *(Sample console output showing directory listing and file operations.)*
 
