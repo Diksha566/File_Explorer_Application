@@ -34,6 +34,17 @@ using std::cout;
 using std::cin;
 using std::endl;
 
+// === ANSI COLOR CODES ===
+#define RESET       "\033[0m"
+#define BOLD        "\033[1m"
+#define RED         "\033[31m"
+#define GREEN       "\033[32m"
+#define YELLOW      "\033[33m"
+#define BLUE        "\033[34m"
+#define CYAN        "\033[36m"
+#define WHITE       "\033[37m"
+#define BRIGHT_GREEN "\033[92m"
+
 static string currentWorkingDir() {
     char buf[4096];
     if (getcwd(buf, sizeof(buf)) != nullptr) return string(buf);
@@ -68,10 +79,10 @@ static string fileGroupGidToName(gid_t gid) {
 }
 
 void listFiles(const string &path) {
-    cout << "Listing: " << path << "\n\n";
+    cout << BOLD << YELLOW << "Listing: " << path << RESET << "\n\n";
     DIR *dir = opendir(path.c_str());
     if (!dir) {
-        cout << "Failed to open directory: " << strerror(errno) << "\n";
+        cout << RED << "Failed to open directory: " << strerror(errno) << RESET << "\n";
         return;
     }
 
@@ -83,31 +94,38 @@ void listFiles(const string &path) {
     closedir(dir);
     std::sort(names.begin(), names.end());
 
-    cout << std::left << std::setw(30) << "Name"
+    cout << BOLD << std::left
+         << std::setw(30) << "Name"
          << std::setw(12) << "Type"
          << std::setw(12) << "Size"
          << std::setw(12) << "Perms"
          << std::setw(12) << "Owner"
          << std::setw(12) << "Group"
-         << " Modified\n";
+         << "Modified" << RESET << "\n";
     cout << std::string(100, '-') << "\n";
 
     for (const auto &name : names) {
         struct stat st;
         string full = (path == "." ? name : (path + "/" + name));
         if (lstat(full.c_str(), &st) != 0) {
-            cout << name << "\n";
+            cout << RED << name << " (error reading)" << RESET << "\n";
             continue;
         }
 
         string type = S_ISDIR(st.st_mode) ? "Directory" :
                       S_ISLNK(st.st_mode) ? "Symlink" : "File";
 
+        // Apply color based on type
+        string color;
+        if (S_ISDIR(st.st_mode)) color = BLUE;
+        else if (S_ISLNK(st.st_mode)) color = CYAN;
+        else color = WHITE;
+
         char timebuf[64];
         struct tm *tm_info = localtime(&st.st_mtime);
         strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M", tm_info);
 
-        cout << std::left << std::setw(30) << name
+        cout << color << std::left << std::setw(30) << name << RESET
              << std::setw(12) << type
              << std::setw(12) << st.st_size
              << std::setw(12) << formatPermissions(st.st_mode)
@@ -122,9 +140,10 @@ bool changeDirectory(string &cwd, const string &target) {
     if (target == "~") newPath = getenv("HOME") ? getenv("HOME") : "/";
     if (chdir(newPath.c_str()) == 0) {
         cwd = currentWorkingDir();
+        cout << BRIGHT_GREEN << "Changed to: " << cwd << RESET << "\n";
         return true;
     } else {
-        cout << "chdir failed: " << strerror(errno) << "\n";
+        cout << RED << "chdir failed: " << strerror(errno) << RESET << "\n";
         return false;
     }
 }
@@ -132,22 +151,29 @@ bool changeDirectory(string &cwd, const string &target) {
 bool createFile(const string &filename) {
     std::ofstream ofs(filename, std::ios::app);
     if (!ofs) {
-        cout << "Failed to create file: " << strerror(errno) << "\n";
+        cout << RED << "Failed to create file: " << strerror(errno) << RESET << "\n";
         return false;
     }
     ofs.close();
+    cout << BRIGHT_GREEN << "Created: " << filename << RESET << "\n";
     return true;
 }
 
 bool deletePath(const string &path) {
     std::error_code ec;
     if (fs::is_directory(path, ec)) {
-        if (fs::remove(path, ec)) return true;
-        cout << "Failed to remove directory: " << ec.message() << "\n";
+        if (fs::remove(path, ec)) {
+            cout << BRIGHT_GREEN << "Deleted directory: " << path << RESET << "\n";
+            return true;
+        }
+        cout << RED << "Failed to remove directory: " << ec.message() << RESET << "\n";
         return false;
     } else {
-        if (fs::remove(path, ec)) return true;
-        cout << "Failed to remove file: " << ec.message() << "\n";
+        if (fs::remove(path, ec)) {
+            cout << BRIGHT_GREEN << "Deleted file: " << path << RESET << "\n";
+            return true;
+        }
+        cout << RED << "Failed to remove file: " << ec.message() << RESET << "\n";
         return false;
     }
 }
@@ -159,9 +185,10 @@ bool copyFile(const string &src, const string &dst) {
         } else {
             fs::copy_file(src, dst, fs::copy_options::overwrite_existing);
         }
+        cout << BRIGHT_GREEN << "Copied to: " << dst << RESET << "\n";
         return true;
     } catch (const fs::filesystem_error &e) {
-        cout << "Copy failed: " << e.what() << "\n";
+        cout << RED << "Copy failed: " << e.what() << RESET << "\n";
         return false;
     }
 }
@@ -169,9 +196,10 @@ bool copyFile(const string &src, const string &dst) {
 bool moveFile(const string &src, const string &dst) {
     try {
         fs::rename(src, dst);
+        cout << BRIGHT_GREEN << "Moved to: " << dst << RESET << "\n";
         return true;
     } catch (const fs::filesystem_error &e) {
-        cout << "Rename failed: " << e.what() << "\n";
+        cout << RED << "Rename failed: " << e.what() << RESET << "\n";
         if (copyFile(src, dst)) {
             if (deletePath(src)) return true;
         }
@@ -180,15 +208,15 @@ bool moveFile(const string &src, const string &dst) {
 }
 
 void searchFiles(const string &root, const string &pattern) {
-    cout << "Searching for \"" << pattern << "\" under " << root << " ...\n";
+    cout << CYAN << "Searching for \"" << pattern << "\" under " << root << " ...\n" << RESET;
     try {
         for (auto &p : fs::recursive_directory_iterator(root)) {
             if (p.path().filename().string().find(pattern) != string::npos) {
-                cout << p.path().string() << "\n";
+                cout << GREEN << p.path().string() << RESET << "\n";
             }
         }
     } catch (const fs::filesystem_error &e) {
-        cout << "Search error: " << e.what() << "\n";
+        cout << RED << "Search error: " << e.what() << RESET << "\n";
     }
 }
 
@@ -196,29 +224,30 @@ bool changePermission(const string &path, const string &modeStr) {
     try {
         unsigned long mode = std::stoul(modeStr, nullptr, 8);
         if (chmod(path.c_str(), static_cast<mode_t>(mode)) != 0) {
-            cout << "chmod failed: " << strerror(errno) << "\n";
+            cout << RED << "chmod failed: " << strerror(errno) << RESET << "\n";
             return false;
         }
+        cout << BRIGHT_GREEN << "Permissions changed for " << path << RESET << "\n";
         return true;
     } catch (...) {
-        cout << "Invalid mode. Provide octal like 755 or 0755\n";
+        cout << RED << "Invalid mode. Provide octal like 755 or 0755" << RESET << "\n";
         return false;
     }
 }
 
 void printHelp() {
-    cout << "\n--- Commands (Menu) ---\n";
-    cout << "1  - List files in current directory\n";
-    cout << "2  - Change directory (cd)\n";
-    cout << "3  - Create file\n";
-    cout << "4  - Delete file/directory (rm)\n";
-    cout << "5  - Copy file/directory\n";
-    cout << "6  - Move/Rename file/directory\n";
-    cout << "7  - Search (recursive)\n";
-    cout << "8  - Change permissions (chmod)\n";
-    cout << "9  - Show current working directory\n";
-    cout << "10 - Detailed list (ls -la style)\n";
-    cout << "0  - Exit\n";
+    cout << "\n" << BOLD << YELLOW << "--- Commands (Menu) ---" << RESET << "\n";
+    cout << GREEN << "1 " << RESET << "- List files in current directory\n";
+    cout << GREEN << "2 " << RESET << "- Change directory (cd)\n";
+    cout << GREEN << "3 " << RESET << "- Create file\n";
+    cout << GREEN << "4 " << RESET << "- Delete file/directory (rm)\n";
+    cout << GREEN << "5 " << RESET << "- Copy file/directory\n";
+    cout << GREEN << "6 " << RESET << "- Move/Rename file/directory\n";
+    cout << GREEN << "7 " << RESET << "- Search (recursive)\n";
+    cout << GREEN << "8 " << RESET << "- Change permissions (chmod)\n";
+    cout << GREEN << "9 " << RESET << "- Show current working directory\n";
+    cout << GREEN << "10" << RESET << "- Detailed list (ls -la style)\n";
+    cout << GREEN << "0 " << RESET << "- Exit\n";
 }
 
 void detailedList(const string &path) {
@@ -227,25 +256,25 @@ void detailedList(const string &path) {
 
 int main() {
     string cwd = currentWorkingDir();
-    cout << "Simple Linux File Explorer (C++)\n";
-    cout << "Working directory: " << cwd << "\n";
+    cout << BOLD << YELLOW << "Simple Linux File Explorer (C++)" << RESET << "\n";
+    cout << CYAN << "Working directory: " << cwd << RESET << "\n";
     printHelp();
 
     while (true) {
-        cout << "\n[" << cwd << "]> ";
+        cout << "\n" << BOLD << GREEN << "[" << cwd << "]> " << RESET;
         int choice = -1;
         if (!(cin >> choice)) {
             cin.clear();
             string throwaway;
             getline(cin, throwaway);
-            cout << "Invalid input\n";
+            cout << RED << "Invalid input" << RESET << "\n";
             continue;
         }
         string a;
         getline(cin, a); // consume rest of line
 
         if (choice == 0) {
-            cout << "Exiting. Bye!\n";
+            cout << YELLOW << "Exiting. Bye!" << RESET << "\n";
             break;
         }
 
@@ -256,23 +285,19 @@ int main() {
             case 2: {
                 cout << "Enter directory: ";
                 string dir; getline(cin, dir);
-                if (dir.empty()) break;
-                if (changeDirectory(cwd, dir))
-                    cout << "Changed to: " << cwd << "\n";
+                if (!dir.empty()) changeDirectory(cwd, dir);
                 break;
             }
             case 3: {
                 cout << "Enter filename: ";
                 string file; getline(cin, file);
-                if (createFile(file))
-                    cout << "Created: " << file << "\n";
+                createFile(file);
                 break;
             }
             case 4: {
                 cout << "Enter path to delete: ";
                 string target; getline(cin, target);
-                if (deletePath(target))
-                    cout << "Deleted: " << target << "\n";
+                deletePath(target);
                 break;
             }
             case 5: {
@@ -280,8 +305,7 @@ int main() {
                 string src; getline(cin, src);
                 cout << "Enter destination path: ";
                 string dst; getline(cin, dst);
-                if (copyFile(src, dst))
-                    cout << "Copied to: " << dst << "\n";
+                copyFile(src, dst);
                 break;
             }
             case 6: {
@@ -289,8 +313,7 @@ int main() {
                 string src; getline(cin, src);
                 cout << "Enter destination path: ";
                 string dst; getline(cin, dst);
-                if (moveFile(src, dst))
-                    cout << "Moved to: " << dst << "\n";
+                moveFile(src, dst);
                 break;
             }
             case 7: {
@@ -307,12 +330,11 @@ int main() {
                 string path; getline(cin, path);
                 cout << "Enter mode (e.g. 755): ";
                 string mode; getline(cin, mode);
-                if (changePermission(path, mode))
-                    cout << "Permissions changed for " << path << "\n";
+                changePermission(path, mode);
                 break;
             }
             case 9:
-                cout << "Current directory: " << cwd << "\n";
+                cout << CYAN << "Current directory: " << cwd << RESET << "\n";
                 break;
             case 10:
                 detailedList(cwd);
